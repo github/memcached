@@ -622,9 +622,9 @@ But it was #{server}.
 
   # Turn an array of keys into a hash of keys to servers.
   def inspect_keys(keys, server = nil)
-    Hash[*Array(keys).map do |key|
+    Hash[Array(keys).map do |key|
       [key, server || server_by_key(key)]
-    end.flatten]
+    end]
   end
 
   # Find which server failed most recently.
