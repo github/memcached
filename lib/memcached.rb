@@ -26,7 +26,6 @@ class Memcached
   VERSION = File.read("#{File.dirname(__FILE__)}/../CHANGELOG")[/v([\d\.]+)\./, 1]
 
   autoload :Rails, 'memcached/rails'
-  deprecate_constant :Rails
   autoload :Experimental, 'memcached/experimental'
 end
 
