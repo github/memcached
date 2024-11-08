@@ -1179,6 +1179,8 @@ class MemcachedTest < Test::Unit::TestCase
     rescue => e
       assert_equal Memcached::ServerIsMarkedDead, e.class
       assert_match(/localhost:43041/, e.message)
+      assert_equal 1, e.key_map.size
+      assert_match(/localhost:43041/, e.key_map[key2])
     end
 
     # Hit first server on retry
