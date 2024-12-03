@@ -175,7 +175,7 @@ VALUE memcached_fetch_rvalue(memcached_st *ptr, const char **key, size_t *key_le
   *error = MEMCACHED_TIMEOUT; // timeouts leave error uninitialized
   memcached_result_st *result = memcached_fetch_result(ptr, &ptr->result, error);
   VALUE str = Qnil;
-  if (result == NULL || *error != MEMCACHED_SUCCESS) {
+  if (result == NULL) {
     *key = NULL;
     *key_length = 0;
     *flags = 0;

@@ -684,13 +684,13 @@ But it was #{server}.
   end
 
   def multi_get(keys, decode)
-    ret = Lib.memcached_mget(@struct, keys)
-    check_return_code(ret, keys)
+    mget_ret = Lib.memcached_mget(@struct, keys)
+    value, key, flags, ret = Lib.memcached_fetch_rvalue(@struct)
+    check_return_code(mget_ret, keys) if ret == Lib::MEMCACHED_END || key == ""  # raise original return code if nothing can be fetched
 
     hash = {}
     flags_and_cas = {} if @support_cas
-    value, key, flags, ret = Lib.memcached_fetch_rvalue(@struct)
-    while ret != 21 do # Lib::MEMCACHED_END
+    while ret != Lib::MEMCACHED_END do
       if ret == 0 # Lib::MEMCACHED_SUCCESS
         flags_and_cas[key] = [flags, @struct.result.cas] if @support_cas
         hash[key] = decode ? [value, flags] : value
