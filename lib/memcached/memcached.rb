@@ -631,9 +631,13 @@ But it was #{server}.
   # FIXME Is this still necessary with cached_errno?
   def detect_failure
     time = Time.now
-    server = server_structs.detect do |server_struct|
-      server_struct.next_retry > time
+    server = nil
+    server_structs.each do |server_struct|
+      puts "#{inspect_server(server_struct)}: #{server_struct.next_retry}"
+      next unless server_struct.next_retry > time
+      server = server_struct if server.nil? || server_struct.next_retry > server.next_retry
     end
+    puts inspect_server(server)
     inspect_server(server) if server
   end
 
