@@ -471,6 +471,34 @@ class MemcachedTest < Test::Unit::TestCase
     end
   end
 
+  def test_get_multi_eviction
+    cache = Memcached.new(
+      [@servers.first, "127.10.10.10:11211", "127.20.20.20:11211"],
+      :auto_eject_hosts => true,
+      :server_failure_limit => 1,
+      :connect_timeout => 1,
+      :retry_timeout => 60,
+      :exception_retry_limit => 0,
+    )
+
+    assert_equal "127.10.10.10:11211:8", cache.server_by_key("9876")
+    assert_equal "127.20.20.20:11211:8", cache.server_by_key("1234")
+    assert_equal "localhost:43042:8", cache.server_by_key("3456")
+
+    cache.set("3456", "3456")
+    res1 = cache.get(["9876", "1234", "3456"])
+    res2 = cache.get(["9876", "1234", "3456"])
+    assert_equal({"3456" => "3456"}, res1)
+    assert_equal({"3456" => "3456"}, res2)
+
+    time = Time.now
+    s1, s2, s3 = cache.send(:server_structs).map { |s| s.next_retry }
+
+    assert s1 < time
+    assert s2 > time
+    assert s3 > time
+  end
+
   def test_set_and_get_unmarshalled
     @cache.set key, @value
     result = @cache.get key, false
@@ -1336,7 +1364,7 @@ class MemcachedTest < Test::Unit::TestCase
     server.server_failure_counter = 0
     cache.quit
     assert_equal 0, server.server_failure_counter
-  end
+  endm
 
   def test_missing_server
     cache = Memcached.new(
