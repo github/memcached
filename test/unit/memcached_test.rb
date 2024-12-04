@@ -1338,6 +1338,40 @@ class MemcachedTest < Test::Unit::TestCase
     assert_equal 0, server.server_failure_counter
   end
 
+  def test_failure_detection
+    cache = Memcached.new(
+      ["127.10.10.10:11211", "127.20.20.20:11211"],
+      :auto_eject_hosts => true,
+      :server_failure_limit => 1,
+      :connect_timeout => 1,
+      :retry_timeout => 60,
+      :exception_retry_limit => 0,
+    )
+
+    assert_equal "127.10.10.10:11211:8", cache.server_by_key("bar")
+    assert_equal "127.20.20.20:11211:8", cache.server_by_key("foo")
+
+    assert_raises Memcached::ATimeoutOccurred do
+      cache.set("bar", "bar")
+    end
+
+    assert_raises Memcached::ServerIsMarkedDead do
+      cache.set("bar", "bar")
+    end
+
+    assert_equal "127.10.10.10:11211:8".b, cache.send(:detect_failure)
+
+    assert_raises Memcached::ATimeoutOccurred do
+      cache.set("foo", "foo")
+    end
+
+    assert_raises Memcached::ServerIsMarkedDead do
+      cache.set("foo", "foo")
+    end
+
+    assert_equal "127.20.20.20:11211:8".b, cache.send(:detect_failure)
+  end
+
   def test_missing_server
     cache = Memcached.new(
       [@servers.last, 'localhost:43041'],
