@@ -10,7 +10,7 @@ class MemcachedTest < Test::Unit::TestCase
   Rlibmemcached = Memcached.const_get(:Lib)
 
   def setup
-    @servers = ['localhost:43042', 'localhost:43043']
+    @servers = ['localhost:43042', 'localhost:43043', "#{UNIX_SOCKET_NAME}0"]
     @udp_servers = ['localhost:43052', 'localhost:43053']
 
     # Maximum allowed prefix key size for :hash_with_prefix_key_key => false
@@ -66,7 +66,7 @@ class MemcachedTest < Test::Unit::TestCase
   def test_initialize
     cache = Memcached.new @servers, :prefix_key => 'test'
     assert_equal 'test', cache.prefix_key
-    assert_equal 2, cache.send(:server_structs).size
+    assert_equal 3, cache.send(:server_structs).size
     assert_equal 'localhost', cache.send(:server_structs).first.hostname
     assert_equal 43042, cache.send(:server_structs).first.port
   end
@@ -146,7 +146,7 @@ class MemcachedTest < Test::Unit::TestCase
 
   def test_initialize_without_prefix_key
     cache = Memcached.new @servers
-    assert_equal 2, cache.send(:server_structs).size
+    assert_equal 3, cache.send(:server_structs).size
   end
 
   def test_set_prefix_key
@@ -1204,7 +1204,7 @@ class MemcachedTest < Test::Unit::TestCase
     socket = stub_server 43041
 
     cache = Memcached.new(
-      [@servers.last, 'memcache.test:11211'],
+      [@servers.second, 'memcache.test:11211'],
       :prefix_key => @prefix_key,
       :auto_eject_hosts => true,
       :server_failure_limit => 2,
