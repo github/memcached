@@ -31,6 +31,7 @@ static memcached_return set_hostinfo(memcached_server_st *server)
   {
     WATCHPOINT_STRING(server->hostname);
     WATCHPOINT_STRING(gai_strerror(e));
+    server->server_failure_counter ++;
     return MEMCACHED_HOST_LOOKUP_FAILURE;
   }
 
