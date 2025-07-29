@@ -10,7 +10,7 @@ class MemcachedTest < Test::Unit::TestCase
   Rlibmemcached = Memcached.const_get(:Lib)
 
   def setup
-    @servers = ['localhost:43042', 'localhost:43043', "#{UNIX_SOCKET_NAME}0"]
+    @servers = ['localhost:43042', 'localhost:43043']
     @udp_servers = ['localhost:43052', 'localhost:43053']
 
     # Maximum allowed prefix key size for :hash_with_prefix_key_key => false
@@ -66,7 +66,7 @@ class MemcachedTest < Test::Unit::TestCase
   def test_initialize
     cache = Memcached.new @servers, :prefix_key => 'test'
     assert_equal 'test', cache.prefix_key
-    assert_equal 3, cache.send(:server_structs).size
+    assert_equal 2, cache.send(:server_structs).size
     assert_equal 'localhost', cache.send(:server_structs).first.hostname
     assert_equal 43042, cache.send(:server_structs).first.port
   end
@@ -146,7 +146,7 @@ class MemcachedTest < Test::Unit::TestCase
 
   def test_initialize_without_prefix_key
     cache = Memcached.new @servers
-    assert_equal 3, cache.send(:server_structs).size
+    assert_equal 2, cache.send(:server_structs).size
   end
 
   def test_set_prefix_key
@@ -1192,6 +1192,53 @@ class MemcachedTest < Test::Unit::TestCase
     # Hit second server again after restore, expect same failure
     key2 = 'test_missing_server'
     assert_raise(Memcached::ATimeoutOccurred) do
+      cache.set(key2, @value)
+    end
+
+  ensure
+    socket.close
+  end
+
+
+  def test_dns_nxdomain_server
+    socket = stub_server 43041
+
+    cache = Memcached.new(
+      [@servers.last, 'memcache.test:11211'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 0
+    )
+
+    # Hit second server up to the server_failure_limit
+    key2 = "test_missing_server_3"
+    assert_raise(Memcached::HostnameLookupFailure) { cache.set(key2, @value) }
+    assert_raise(Memcached::HostnameLookupFailure) { cache.get(key2, @value) }
+
+    # Hit second server and pass the limit
+    key2 = "test_missing_server_3"
+    begin
+      cache.get(key2)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+      assert_match(/memcache.test:11211/, e.message)
+    end
+
+    # Hit first server on retry
+    assert_nothing_raised do
+      cache.set(key2, @value)
+      assert_equal cache.get(key2), @value
+    end
+
+    sleep(2)
+
+    # Hit second server again after restore, expect same failure
+    key2 = "test_missing_server_3"
+    assert_raise(Memcached::HostnameLookupFailure) do
       cache.set(key2, @value)
     end
 
