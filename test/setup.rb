@@ -4,12 +4,12 @@ unless defined? UNIX_SOCKET_NAME
   UNIX_SOCKET_NAME = File.join(ENV['TMPDIR']||'/tmp','memcached')
 
   # Kill memcached
-  system("killall -9 memcached")
+  system("sudo killall -9 memcached")
 
   # Start memcached
-  verbosity = (ENV['DEBUG'] ? "-vv" : "")
+  verbosity = "-vv"
   log = "/tmp/memcached.log"
-  memcached = ENV['MEMCACHED_COMMAND'] || 'memcached'
+  memcached = ENV['MEMCACHED_COMMAND'] || 'sudo memcached'
   system ">#{log}"
 
   # TCP memcached
