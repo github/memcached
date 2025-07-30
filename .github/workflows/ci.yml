@@ -19,7 +19,7 @@ jobs:
       with:
         ruby-version: ${{ matrix.ruby }}
         bundler-cache: true
-    - run: ls -l /tmp
     - run: bundle exec ruby test/setup.rb
+    - run: ls -l /tmp
     - run: bundle exec rake
     - run: bundle exec rake install
