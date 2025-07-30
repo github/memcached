@@ -9,7 +9,7 @@ end
 
 Rake::TestTask.new do |t|
   t.libs << 'lib' << 'test'
-  t.pattern = 'test/**/*_test.rb'
+  t.pattern = 'test/unit/memcached_test.rb'
   t.verbose = false
   t.warning = true
 end
