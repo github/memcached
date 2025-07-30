@@ -9,7 +9,7 @@ unless defined? UNIX_SOCKET_NAME
   # Start memcached
   verbosity = "-vv"
   log = "/tmp/memcached.log"
-  memcached = ENV['MEMCACHED_COMMAND'] || 'sudo memcached'
+  memcached = ENV['MEMCACHED_COMMAND'] || 'memcached'
   system ">#{log}"
 
   # TCP memcached
