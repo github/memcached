@@ -10,7 +10,7 @@ class MemcachedTest < Test::Unit::TestCase
   Rlibmemcached = Memcached.const_get(:Lib)
 
   def setup
-    @servers = ['localhost:43042', 'localhost:43043']
+    @servers = ['localhost:43042', 'localhost:43043', "#{UNIX_SOCKET_NAME}0"]
     @udp_servers = ['localhost:43052', 'localhost:43053']
 
     # Maximum allowed prefix key size for :hash_with_prefix_key_key => false

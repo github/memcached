@@ -1,6 +1,6 @@
 HERE = File.dirname(__FILE__)
 $LOAD_PATH << "#{HERE}/../../lib/"
-UNIX_SOCKET_NAME = File.join('/tmp', 'memcached')
+UNIX_SOCKET_NAME = File.join(ENV['TMPDIR']||'/tmp','memcached')
 
 require 'memcached'
 require 'benchmark'
@@ -120,6 +120,9 @@ class Bench
       "libm:ascii:pipeline" => Memcached::Rails.new(
         ['127.0.0.1:43042', '127.0.0.1:43043'],
         :no_block => true, :buffer_requests => true, :noreply => true, :namespace => "namespace"),
+      "libm:ascii:udp" => Memcached::Rails.new(
+        ["#{UNIX_SOCKET_NAME}0", "#{UNIX_SOCKET_NAME}1"],
+        :buffer_requests => false, :no_block => false, :namespace => "namespace"),
       "libm:bin" => Memcached::Rails.new(
         ['127.0.0.1:43042', '127.0.0.1:43043'],
         :buffer_requests => false, :no_block => false, :namespace => "namespace", :binary_protocol => true),

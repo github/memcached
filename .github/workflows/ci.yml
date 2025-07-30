@@ -7,6 +7,7 @@ jobs:
     strategy:
       matrix:
         ruby:
+          - '2.5' # earliest supported
           - '3.0' # latest release
 
     steps:
@@ -19,7 +20,5 @@ jobs:
         ruby-version: ${{ matrix.ruby }}
         bundler-cache: true
     - run: bundle exec ruby test/setup.rb
-    - run: ls -l /tmp
-    - run: cat /tmp/memcached.log
-    - run: bundle exec rake --trace
+    - run: bundle exec rake
     - run: bundle exec rake install
