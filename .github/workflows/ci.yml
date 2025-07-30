@@ -19,8 +19,9 @@ jobs:
       with:
         ruby-version: ${{ matrix.ruby }}
         bundler-cache: true
-    - run: memcached -vv -s /tmp/memcached.sock -a 770
+    - run: memcached -vv -s /tmp/memcached.sock -a 770 >> /tmp/memcached.log 2>&1 &
     - run: bundle exec ruby test/setup.rb
     - run: ls -l /tmp
+    - run: cat /tmp/memcached.log
     - run: bundle exec rake
     - run: bundle exec rake install
