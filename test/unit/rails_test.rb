@@ -12,7 +12,7 @@ class RailsTest < Test::Unit::TestCase
   end
 
   def setup
-    @servers = ['127.0.0.1:43042', '127.0.0.1:43043']
+    @servers = ['127.0.0.1:43042', '127.0.0.1:43043', "#{UNIX_SOCKET_NAME}0"]
     @duration = ActiveSupport::Duration.new(2592000, [[:months, 1]])
     @namespace = 'rails_test'
     @cache = MemcachedRails.new(:servers => @servers, :namespace => @namespace, :logger => Logger.new(File.open("/dev/null", "w")))
