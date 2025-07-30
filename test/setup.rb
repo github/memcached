@@ -22,9 +22,9 @@ unless defined? UNIX_SOCKET_NAME
     cmd = "#{memcached} #{verbosity} -u nobody -U #{port} -p 0 >> #{log} 2>&1 &"
     raise "'#{cmd}' failed to start" unless system(cmd)
   end
-  # Domain socket memcached
-  (0..1).each do |i|
-    cmd = "#{memcached} -M -s #{UNIX_SOCKET_NAME}#{i} -u nobody #{verbosity} >> #{log} 2>&1 &"
-    raise "'#{cmd}' failed to start" unless system(cmd)
-  end
+  # # Domain socket memcached
+  # (0..1).each do |i|
+  #   cmd = "#{memcached} -M -s #{UNIX_SOCKET_NAME}#{i} -u nobody #{verbosity} >> #{log} 2>&1 &"
+  #   raise "'#{cmd}' failed to start" unless system(cmd)
+  # end
 end
