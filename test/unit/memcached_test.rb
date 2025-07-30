@@ -1199,6 +1199,53 @@ class MemcachedTest < Test::Unit::TestCase
     socket.close
   end
 
+
+  def test_dns_nxdomain_server
+    socket = stub_server 43041
+
+    cache = Memcached.new(
+      [@servers[1], 'memcache.test:11211'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 0
+    )
+
+    # Hit second server up to the server_failure_limit
+    key2 = "test_missing_server_3"
+    assert_raise(Memcached::HostnameLookupFailure) { cache.set(key2, @value) }
+    assert_raise(Memcached::HostnameLookupFailure) { cache.get(key2, @value) }
+
+    # Hit second server and pass the limit
+    key2 = "test_missing_server_3"
+    begin
+      cache.get(key2)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+      assert_match(/memcache.test:11211/, e.message)
+    end
+
+    # Hit first server on retry
+    assert_nothing_raised do
+      cache.set(key2, @value)
+      assert_equal cache.get(key2), @value
+    end
+
+    sleep(2)
+
+    # Hit second server again after restore, expect same failure
+    key2 = "test_missing_server_3"
+    assert_raise(Memcached::HostnameLookupFailure) do
+      cache.set(key2, @value)
+    end
+
+  ensure
+    socket.close
+  end
+
   def test_unresponsive_server_retries_greater_than_server_failure_limit
     socket = stub_server 43041
 
