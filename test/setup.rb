@@ -1,7 +1,7 @@
 
 unless defined? UNIX_SOCKET_NAME
   HERE = File.dirname(__FILE__)
-  UNIX_SOCKET_NAME = File.join('/var','run','memcached')
+  UNIX_SOCKET_NAME = File.join('/tmp','memcached')
 
   # Kill memcached
   system("sudo killall -9 memcached")
@@ -24,7 +24,7 @@ unless defined? UNIX_SOCKET_NAME
   end
   # Domain socket memcached
   (0..1).each do |i|
-    cmd = "#{memcached} -M -s #{UNIX_SOCKET_NAME}#{i} #{verbosity} >> #{log} 2>&1 &"
+    cmd = "#{memcached} -M -s #{UNIX_SOCKET_NAME}#{i} -a 777 #{verbosity} >> #{log} 2>&1 &"
     raise "'#{cmd}' failed to start" unless system(cmd)
   end
 end

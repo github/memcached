@@ -1,6 +1,6 @@
 HERE = File.dirname(__FILE__)
 $LOAD_PATH << "#{HERE}/../../lib/"
-UNIX_SOCKET_NAME = File.join('/var','run','memcached')
+UNIX_SOCKET_NAME = File.join('/tmp', 'memcached')
 
 require 'memcached'
 require 'benchmark'

@@ -15,7 +15,7 @@ require 'socket'
 
 require_relative 'setup'
 
-UNIX_SOCKET_NAME = File.join('/var', 'run', 'memcached') unless defined? UNIX_SOCKET_NAME
+UNIX_SOCKET_NAME = File.join('/tmp', 'memcached') unless defined? UNIX_SOCKET_NAME
 
 class GenericClass
 end
