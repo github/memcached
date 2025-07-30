@@ -24,7 +24,7 @@ unless defined? UNIX_SOCKET_NAME
   end
   # Domain socket memcached
   (0..1).each do |i|
-    cmd = "#{memcached} -M -s #{UNIX_SOCKET_NAME}#{i} -u nobody -a 777 #{verbosity} >> #{log} 2>&1 &"
+    cmd = "#{memcached} -M -s #{UNIX_SOCKET_NAME}#{i} -u nobody #{verbosity} >> #{log} 2>&1 &"
     raise "'#{cmd}' failed to start" unless system(cmd)
   end
 end
