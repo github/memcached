@@ -1204,7 +1204,7 @@ class MemcachedTest < Test::Unit::TestCase
     socket = stub_server 43041
 
     cache = Memcached.new(
-      [@servers.second, 'memcache.test:11211'],
+      [@servers[1], 'memcache.test:11211'],
       :prefix_key => @prefix_key,
       :auto_eject_hosts => true,
       :server_failure_limit => 2,
