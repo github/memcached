@@ -422,7 +422,7 @@ class MemcachedTest < Test::Unit::TestCase
     @cache.set "#{key}_3", 3
     @cache.delete "#{key}_4" rescue nil
     assert_equal(
-      {"test_get_multi_missing_3"=>3, "test_get_multi_missing_1"=>1},
+      {"#{key}_3"=>3, "#{key}_1"=>1},
       @cache.get(["#{key}_1", "#{key}_2",  "#{key}_3",  "#{key}_4"])
      )
   end
@@ -432,7 +432,7 @@ class MemcachedTest < Test::Unit::TestCase
     @binary_protocol_cache.delete "#{key}_2" rescue nil
     @binary_protocol_cache.set "#{key}_3", 3
     assert_equal(
-      {"test_get_multi_binary_3"=>3, "test_get_multi_binary_1"=>1},
+      {"#{key}_3"=>3, "#{key}_1"=>1},
       @binary_protocol_cache.get(["#{key}_1", "#{key}_2",  "#{key}_3"])
      )
   end
@@ -1582,7 +1582,7 @@ class MemcachedTest < Test::Unit::TestCase
   end
 
   def key
-    caller.first[/.*[` ](.*)'/, 1] # '
+    caller.first[/.*[`' ](.*)'/, 1] # '
   end
 
   def stub_server(port)

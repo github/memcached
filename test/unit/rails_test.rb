@@ -325,7 +325,7 @@ class RailsTest < Test::Unit::TestCase
   private
 
   def key
-    caller.first[/.*[` ](.*)'/, 1] # '
+    caller.first[/.*[`' ](.*)'/, 1] # '
   end
 
   def compare_servers(cache, servers)
