@@ -1001,7 +1001,7 @@ class MemcachedTest < Test::Unit::TestCase
   def test_verify_key_disabled
     cache = Memcached.new @servers, :verify_key => false
     key = "i have a space"
-    assert_raises(Memcached::ProtocolError) do
+    assert_raises(Memcached::ServerProtocolError) do
       cache.set key, @value
     end
     assert_raises(Memcached::NotFound) do

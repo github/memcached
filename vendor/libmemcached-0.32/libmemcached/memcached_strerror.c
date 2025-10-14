@@ -20,6 +20,10 @@ const char *memcached_strerror(memcached_st *ptr __attribute__((unused)), memcac
     return "UNKNOWN READ FAILURE";
   case MEMCACHED_PROTOCOL_ERROR:
     return "PROTOCOL ERROR";
+  case MEMCACHED_SERVER_PROTOCOL_ERROR:
+    return "SERVER PROTOCOL ERROR";
+  case MEMCACHED_INCOMPLETE_LINE_PROTOCOL_ERROR:
+    return "INCOMPLETE LINE PROTOCOL ERROR";
   case MEMCACHED_CLIENT_ERROR:
     return "CLIENT ERROR";
   case MEMCACHED_SERVER_ERROR:

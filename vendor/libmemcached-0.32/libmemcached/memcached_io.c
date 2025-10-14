@@ -555,7 +555,7 @@ memcached_return memcached_io_readline(memcached_server_st *ptr,
     }
 
     if (total_nr == size)
-      return MEMCACHED_PROTOCOL_ERROR;
+      return MEMCACHED_INCOMPLETE_LINE_PROTOCOL_ERROR;
   }
 
   return MEMCACHED_SUCCESS;

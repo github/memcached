@@ -31,6 +31,8 @@ memcached_return memcached_read_one_response(memcached_server_st *ptr,
     rc= textual_read_one_response(ptr, buffer, buffer_length, result);
 
   unlikely(rc == MEMCACHED_UNKNOWN_READ_FAILURE ||
+           rc == MEMCACHED_INCOMPLETE_LINE_PROTOCOL_ERROR ||
+           rc == MEMCACHED_SERVER_PROTOCOL_ERROR ||
            rc == MEMCACHED_PROTOCOL_ERROR ||
            rc == MEMCACHED_CLIENT_ERROR ||
            rc == MEMCACHED_MEMORY_ALLOCATION_FAILURE)
@@ -279,7 +281,7 @@ static memcached_return textual_read_one_response(memcached_server_st *ptr,
       if (buffer[1] == 'N')
         return MEMCACHED_END;
       else if (buffer[1] == 'R')
-        return MEMCACHED_PROTOCOL_ERROR;
+        return MEMCACHED_SERVER_PROTOCOL_ERROR;
       else if (buffer[1] == 'X')
         return MEMCACHED_DATA_EXISTS;
       else
