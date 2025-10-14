@@ -236,7 +236,7 @@ class RailsTest < Test::Unit::TestCase
     assert_equal @value, @cache.fetch("x"){ 1 }
 
     # works with options
-    @cache.expects(:write).with("y", 1, :foo => :bar)
+    @cache.expects(:write).with("y", 1, {:foo => :bar})
     @cache.fetch("y", :foo => :bar){ 1 }
   end
 
@@ -325,7 +325,7 @@ class RailsTest < Test::Unit::TestCase
   private
 
   def key
-    caller.first[/.*[` ](.*)'/, 1] # '
+    caller.first[/.*[`' ](.*)'/, 1] # '
   end
 
   def compare_servers(cache, servers)
