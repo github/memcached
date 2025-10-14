@@ -4,7 +4,9 @@ unless defined? UNIX_SOCKET_NAME
   UNIX_SOCKET_NAME = File.join(ENV['TMPDIR']||'/tmp','memcached')
 
   # Kill memcached
-  system("killall -9 memcached")
+  unless ENV['CI']
+    system("killall -9 memcached")
+  end
 
   # Start memcached
   verbosity = (ENV['DEBUG'] ? "-vv" : "")
