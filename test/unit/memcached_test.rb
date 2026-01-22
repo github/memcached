@@ -471,6 +471,32 @@ class MemcachedTest < Test::Unit::TestCase
     end
   end
 
+  def test_get_multi_with_unresponsive_server
+    cache = Memcached.new(
+      [@servers.first, "invalid:43042"],
+    )
+
+    cache.set("bar", "bar")  # resolves to the first, valid server
+
+    # query both servers, and ensure order doesn't matter
+    get_res1 = cache.get(["foo", "bar"])
+    assert_equal({"bar" => "bar"}, get_res1)
+
+    get_res2 = cache.get(["bar", "foo"])
+    assert_equal({"bar" => "bar"}, get_res2)
+  end
+
+  def test_get_multi_with_all_unresponsive_servers
+    cache = Memcached.new(
+      ["first.invalid:43042", "second.invalid:43042"],
+    )
+
+    # query both servers
+    assert_raises(Memcached::HostnameLookupFailure) do
+      cache.get(["foo", "bar"])
+    end
+  end
+
   def test_set_and_get_unmarshalled
     @cache.set key, @value
     result = @cache.get key, false
