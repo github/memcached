@@ -65,7 +65,18 @@ Subclasses correspond one-to-one with server response strings or libmemcached er
   # Generate exception classes
   Lib::MEMCACHED_MAXIMUM_RETURN.times do |index|
     description = Lib.memcached_strerror(empty_struct, index).gsub("!", "")
-    exception_class = eval("class #{camelize(description)} < Error; self; end")
+    exception_class = eval("""
+      class #{camelize(description)} < Error
+        attr_reader :key_map
+
+        def initialize(msg, key_map: nil)
+          @key_map = key_map
+          super(msg)
+        end
+
+        self
+      end
+    """)
     EXCEPTIONS << exception_class
   end
 

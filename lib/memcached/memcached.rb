@@ -600,7 +600,8 @@ But it was #{server}.
   end
 
   def reraise(key, ret)
-    message = "Key #{inspect_keys(key, (detect_failure if ret == Lib::MEMCACHED_SERVER_MARKED_DEAD)).inspect}" if key
+    key_map = inspect_keys(key, (detect_failure if ret == Lib::MEMCACHED_SERVER_MARKED_DEAD)) if key
+    message = "Key #{key_map.inspect}" if key_map
     if key.is_a?(String)
       if ret == Lib::MEMCACHED_ERRNO
         if (server = Lib.memcached_server_by_key(@struct, key)).is_a?(Array)
@@ -614,7 +615,7 @@ But it was #{server}.
       end
     end
     if EXCEPTIONS[ret]
-      raise EXCEPTIONS[ret], message
+      raise EXCEPTIONS[ret].new(message, key_map: key_map)
     else
       raise Memcached::Error, "Unknown return code: #{ret}"
     end
