@@ -37,6 +37,8 @@ class Memcached
     :credentials => nil,
     :experimental_features => false,
     :codec => Memcached::MarshalCodec,
+    :liveness_check => false,
+    :liveness_check_timeout => 0.5,
     :exception_retry_limit => 5,
     :exceptions_to_retry => [
         Memcached::ServerIsMarkedDead,
@@ -101,6 +103,8 @@ Valid option parameters are:
 <tt>:sort_hosts</tt>:: Whether to force the server list to stay sorted. This defeats consistent hashing and is rarely useful.
 <tt>:verify_key</tt>:: Validate keys before accepting them. Never disable this.
 <tt>:poll_max_retries</tt>:: Maximum poll timeout retries before marking a flush failed on timeouts.
+<tt>:liveness_check</tt>:: Whether to perform a TCP liveness probe before reintroducing a previously-dead server into the active pool. Defaults to <tt>false</tt>.
+<tt>:liveness_check_timeout</tt>:: How long to wait (in seconds) for the liveness probe to succeed. Defaults to <tt>0.5</tt>.
 
 Please note that when <tt>:no_block => true</tt>, update methods do not raise on errors. For example, if you try to <tt>set</tt> an invalid key, it will appear to succeed. The actual setting of the key occurs after libmemcached has returned control to your program, so there is no way to backtrack and raise the exception.
 
@@ -121,6 +125,8 @@ Please note that when <tt>:no_block => true</tt>, update methods do not raise on
     @default_ttl = options[:default_ttl]
     @codec = options[:codec]
     @support_cas = options[:support_cas]
+    @liveness_check = options[:liveness_check]
+    @next_liveness_scan = 0
 
     if servers == nil || servers == []
       if ENV.key?("MEMCACHE_SERVERS")
@@ -315,6 +321,7 @@ But it was #{server}.
   # Also accepts an <tt>encode</tt> value, which defaults to <tt>true</tt> and uses the default Marshal codec. Set <tt>encode</tt> to <tt>false</tt>, and pass a String as the <tt>value</tt>, if you want to set a raw byte array.
   #
   def set(key, value, ttl=@default_ttl, encode=true, flags=FLAGS)
+    maybe_check_liveness
     value, flags = @codec.encode(key, value, flags) if encode
     begin
       check_return_code(
@@ -331,6 +338,7 @@ But it was #{server}.
 
   # Add a key/value pair. Raises <b>Memcached::NotStored</b> if the key already exists on the server. The parameters are the same as <tt>set</tt>.
   def add(key, value, ttl=@default_ttl, encode=true, flags=FLAGS)
+    maybe_check_liveness
     value, flags = @codec.encode(key, value, flags) if encode
     begin
       check_return_code(
@@ -351,6 +359,7 @@ But it was #{server}.
   #
   # Note that the key must be initialized to an unencoded integer first, via <tt>set</tt>, <tt>add</tt>, or <tt>replace</tt> with <tt>encode</tt> set to <tt>false</tt>.
   def increment(key, offset=1)
+    maybe_check_liveness
     ret, value = Lib.memcached_increment(@struct, key, offset)
     check_return_code(ret, key)
     value
@@ -363,6 +372,7 @@ But it was #{server}.
 
   # Decrement a key's value. The parameters and exception behavior are the same as <tt>increment</tt>.
   def decrement(key, offset=1)
+    maybe_check_liveness
     ret, value = Lib.memcached_decrement(@struct, key, offset)
     check_return_code(ret, key)
     value
@@ -380,6 +390,7 @@ But it was #{server}.
 
   # Replace a key/value pair. Raises <b>Memcached::NotFound</b> if the key does not exist on the server. The parameters are the same as <tt>set</tt>.
   def replace(key, value, ttl=@default_ttl, encode=true, flags=FLAGS)
+    maybe_check_liveness
     value, flags = @codec.encode(key, value, flags) if encode
     begin
       check_return_code(
@@ -398,6 +409,7 @@ But it was #{server}.
   #
   # Note that the key must be initialized to an unencoded string first, via <tt>set</tt>, <tt>add</tt>, or <tt>replace</tt> with <tt>encode</tt> set to <tt>false</tt>.
   def append(key, value)
+    maybe_check_liveness
     # Requires memcached 1.2.4
     check_return_code(
       Lib.memcached_append(@struct, key, value.to_s, IGNORED, IGNORED),
@@ -412,6 +424,7 @@ But it was #{server}.
 
   # Prepends a string to a key's value. The parameters and exception behavior are the same as <tt>append</tt>.
   def prepend(key, value)
+    maybe_check_liveness
     # Requires memcached 1.2.4
     check_return_code(
       Lib.memcached_prepend(@struct, key, value.to_s, IGNORED, IGNORED),
@@ -431,6 +444,7 @@ But it was #{server}.
   # CAS stands for "compare and swap", and avoids the need for manual key mutexing. CAS support must be enabled in Memcached.new or a <b>Memcached::ClientError</b> will be raised. Note that CAS may be buggy in memcached itself.
   # :retry_on_exceptions does not apply to this method
   def cas(keys, ttl=@default_ttl, decode=true)
+    maybe_check_liveness
     raise ClientError, "CAS not enabled for this Memcached instance" unless options[:support_cas]
     tries ||= 0
 
@@ -462,6 +476,7 @@ But it was #{server}.
 
   # Deletes a key/value pair from the server. Accepts a String <tt>key</tt>. Raises <b>Memcached::NotFound</b> if the key does not exist.
   def delete(key)
+    maybe_check_liveness
     check_return_code(
       Lib.memcached_delete(@struct, key, IGNORED),
       key
@@ -475,6 +490,7 @@ But it was #{server}.
 
   # Flushes all key/value pairs from all the servers.
   def flush
+    maybe_check_liveness
     check_return_code(
       Lib.memcached_flush(@struct, IGNORED)
     )
@@ -498,6 +514,7 @@ But it was #{server}.
   # Note that when you rescue Memcached::NotFound exceptions, you should use a the block rescue syntax instead of the inline syntax. Block rescues are very fast, but inline rescues are very slow.
   #
   def get(keys, decode=true)
+    maybe_check_liveness
     if keys.is_a? Array
       multi_get(keys, decode).first
     else
@@ -513,6 +530,7 @@ But it was #{server}.
   # Check if a key exists on the server. It will return nil if the value is found, or raise
   # <tt>Memcached::NotFound</tt> if the key does not exist.
   def exist(key)
+    maybe_check_liveness
     check_return_code(
       Lib.memcached_exist(@struct, key),
       key
@@ -600,6 +618,9 @@ But it was #{server}.
   end
 
   def reraise(key, ret)
+    if @liveness_check && ret == Lib::MEMCACHED_SERVER_MARKED_DEAD
+      schedule_liveness_scan
+    end
     message = "Key #{inspect_keys(key, (detect_failure if ret == Lib::MEMCACHED_SERVER_MARKED_DEAD)).inspect}" if key
     if key.is_a?(String)
       if ret == Lib::MEMCACHED_ERRNO
@@ -635,6 +656,113 @@ But it was #{server}.
       server_struct.next_retry > time
     end
     inspect_server(server) if server
+  end
+
+  # Perform a liveness probe against a server.
+  # Dispatches based on connection type:
+  #   TCP  — non-blocking TCP connect probe
+  #   UDP  — always returns true (connectionless; no meaningful probe)
+  #   Unix — non-blocking Unix socket connect probe
+  # Returns true if the server appears reachable, false otherwise.
+  def server_alive?(server)
+    require 'socket'
+    case server.type
+    when Lib::MEMCACHED_CONNECTION_UDP
+      true
+    when Lib::MEMCACHED_CONNECTION_UNIX_SOCKET
+      unix_socket_alive?(server.hostname)
+    else
+      tcp_alive?(server.hostname, server.port)
+    end
+  end
+
+  def tcp_alive?(host, port)
+    timeout = options[:liveness_check_timeout] || 0.5
+    sock = Socket.new(Socket::AF_INET, Socket::SOCK_STREAM, 0)
+    sockaddr = Socket.sockaddr_in(port, host)
+    begin
+      sock.connect_nonblock(sockaddr)
+      true
+    rescue IO::WaitWritable
+      IO.select(nil, [sock], nil, timeout) ? true : false
+    rescue Errno::EISCONN
+      true
+    rescue StandardError
+      false
+    end
+  ensure
+    sock.close if sock && !sock.closed?
+  end
+
+  def unix_socket_alive?(path)
+    timeout = options[:liveness_check_timeout] || 0.5
+    sock = Socket.new(Socket::AF_UNIX, Socket::SOCK_STREAM, 0)
+    sockaddr = Socket.sockaddr_un(path)
+    begin
+      sock.connect_nonblock(sockaddr)
+      true
+    rescue IO::WaitWritable
+      IO.select(nil, [sock], nil, timeout) ? true : false
+    rescue Errno::EISCONN
+      true
+    rescue StandardError
+      false
+    end
+  ensure
+    sock.close if sock && !sock.closed?
+  end
+
+  # Fast-path guard: only scan server structs when a dead server's retry
+  # timeout may have expired. Called at the start of every operation.
+  def maybe_check_liveness
+    return unless @liveness_check
+    return if @next_liveness_scan == 0
+    now = Time.now.to_i
+    return if now < @next_liveness_scan
+    check_liveness_before_retry(now)
+  end
+
+  # Record that a liveness scan will be needed when the dead server's
+  # retry timeout expires. Finds the earliest next_retry across all dead
+  # servers and sets @next_liveness_scan to that time.
+  def schedule_liveness_scan
+    earliest = 0
+    server_structs.each do |server_struct|
+      nr = server_struct.next_retry
+      next if nr == 0
+      earliest = nr if earliest == 0 || nr < earliest
+    end
+    @next_liveness_scan = earliest
+  end
+
+  # Check liveness of servers that are candidates for reintroduction.
+  # If a previously-dead server's retry timeout has expired but it still
+  # fails a liveness probe, extend its next_retry to keep it ejected.
+  def check_liveness_before_retry(now = Time.now.to_i)
+    return unless @liveness_check
+
+    retry_timeout = options[:retry_timeout] || 60
+    next_scan = 0
+
+    server_structs.each do |server_struct|
+      next_retry = server_struct.next_retry
+      next if next_retry == 0
+
+      if next_retry > now
+        # Still in cooldown — track earliest future expiry for fast-path
+        next_scan = next_retry if next_scan == 0 || next_retry < next_scan
+        next
+      end
+
+      # next_retry has expired — this server is a candidate for reintroduction
+      unless server_alive?(server_struct)
+        server_struct.next_retry = now + retry_timeout
+        new_retry = now + retry_timeout
+        next_scan = new_retry if next_scan == 0 || new_retry < next_scan
+      end
+    end
+
+    @next_liveness_scan = next_scan
   end
 
   # Set the behaviors on the struct from the current options.

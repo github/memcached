@@ -217,9 +217,15 @@ class Memcached
 
     # Return an array of server objects.
     def servers
+      memcached_instance = self
       server_structs.each do |server|
-        def server.alive?
-          next_retry <= Time.now
+        server.define_singleton_method(:alive?) do
+          return false if next_retry > Time.now
+          if memcached_instance.options[:liveness_check]
+            memcached_instance.send(:server_alive?, self)
+          else
+            true
+          end
         end
       end
     end

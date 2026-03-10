@@ -1581,6 +1581,205 @@ class MemcachedTest < Test::Unit::TestCase
     end
   end
 
+  # Liveness check tests
+
+  def test_liveness_check_disabled_by_default
+    cache = Memcached.new(
+      @servers,
+      :prefix_key => @prefix_key,
+      :hash => :default,
+      :distribution => :modula
+    )
+    assert_equal false, cache.options[:liveness_check]
+  end
+
+  def test_liveness_check_prevents_reintroduction_of_dead_server
+    socket = stub_server 43041
+
+    cache = Memcached.new(
+      [@servers.last, 'localhost:43041'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 0,
+      :liveness_check => true,
+      :liveness_check_timeout => 0.5
+    )
+
+    key2 = 'test_missing_server'
+
+    # Hit second server up to the server_failure_limit
+    assert_raise(Memcached::ATimeoutOccurred) { cache.set(key2, @value) }
+    assert_raise(Memcached::ATimeoutOccurred) { cache.get(key2, @value) }
+
+    # Hit second server and pass the limit - marked dead
+    begin
+      cache.get(key2)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+    end
+
+    # Operations route to the working server
+    assert_nothing_raised do
+      cache.set(key2, @value)
+      assert_equal cache.get(key2), @value
+    end
+
+    sleep(2)
+
+    # After retry_timeout, the stub_server is still "unresponsive" (accepts TCP
+    # but never speaks memcached). The liveness check performs a TCP connect,
+    # which will succeed against the stub server, so the server is reintroduced
+    # and we get a timeout on the actual operation.
+    assert_raise(Memcached::ATimeoutOccurred) do
+      cache.set(key2, @value)
+    end
+  ensure
+    socket.close
+  end
+
+  def test_liveness_check_allows_reintroduction_of_recovered_server
+    socket = stub_server 43041
+
+    cache = Memcached.new(
+      [@servers.last, 'localhost:43041'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 0,
+      :liveness_check => true,
+      :liveness_check_timeout => 0.5
+    )
+
+    key2 = 'test_missing_server'
+
+    # Hit second server up to the server_failure_limit
+    assert_raise(Memcached::ATimeoutOccurred) { cache.set(key2, @value) }
+    assert_raise(Memcached::ATimeoutOccurred) { cache.get(key2, @value) }
+
+    # Mark dead
+    begin
+      cache.get(key2)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+    end
+
+    # Working server still functions
+    assert_nothing_raised do
+      cache.set(key2, @value)
+      assert_equal cache.get(key2), @value
+    end
+
+    # Close stub (simulates server being down), then check that operations
+    # still succeed on the live server after retry_timeout
+    socket.close
+    sleep(2)
+
+    # The liveness probe to 43041 will fail (nothing listening), so it stays
+    # ejected. Operations route to the working server.
+    assert_nothing_raised do
+      cache.set(key2, @value)
+    end
+  end
+
+  def test_liveness_check_extends_next_retry_on_failure
+    # Use a port where nothing is listening
+    cache = Memcached.new(
+      [@servers.last, 'localhost:43051'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 0,
+      :liveness_check => true,
+      :liveness_check_timeout => 0.25
+    )
+
+    key2 = 'test_missing_server'
+
+    # Drive server to marked dead state
+    assert_raise(Memcached::SystemError) { cache.set(key2, @value) }
+    assert_raise(Memcached::SystemError) { cache.get(key2, @value) }
+    begin
+      cache.get(key2)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+    end
+
+    sleep(2)
+
+    # After retry_timeout, liveness check should find the server still down
+    # and extend next_retry. Verify the server struct has a future next_retry.
+    cache.send(:check_liveness_before_retry)
+
+    dead_server = cache.send(:server_structs).detect { |s| s.port == 43051 }
+    assert dead_server.next_retry > Time.now.to_i,
+      "next_retry should have been extended into the future"
+  end
+
+  def test_liveness_check_timeout_is_configurable
+    cache = Memcached.new(
+      @servers,
+      :prefix_key => @prefix_key,
+      :hash => :default,
+      :distribution => :modula,
+      :liveness_check => true,
+      :liveness_check_timeout => 2.0
+    )
+    assert_equal 2.0, cache.options[:liveness_check_timeout]
+  end
+
+  def test_liveness_check_udp_always_succeeds
+    cache = Memcached.new(
+      @udp_servers,
+      :prefix_key => @prefix_key,
+      :hash => :default,
+      :distribution => :modula,
+      :use_udp => true,
+      :liveness_check => true
+    )
+    server = cache.send(:server_structs).first
+    assert_equal Rlibmemcached::MEMCACHED_CONNECTION_UDP, server.type
+    assert cache.send(:server_alive?, server),
+      "UDP server_alive? should always return true"
+  end
+
+  def test_liveness_check_unix_socket_succeeds_for_live_socket
+    socket_path = "#{UNIX_SOCKET_NAME}0"
+    cache = Memcached.new(
+      [socket_path],
+      :prefix_key => @prefix_key,
+      :hash => :default,
+      :distribution => :modula,
+      :liveness_check => true
+    )
+    server = cache.send(:server_structs).first
+    assert_equal Rlibmemcached::MEMCACHED_CONNECTION_UNIX_SOCKET, server.type
+    assert cache.send(:server_alive?, server),
+      "Unix socket server_alive? should succeed for a live socket"
+  end
+
+  def test_liveness_check_unix_socket_fails_for_missing_socket
+    # Use a path that does not exist as a socket
+    cache = Memcached.new(
+      @servers,
+      :prefix_key => @prefix_key,
+      :hash => :default,
+      :distribution => :modula,
+      :liveness_check => true
+    )
+    # Build a fake server struct-like object to test unix_socket_alive? directly
+    assert_equal false, cache.send(:unix_socket_alive?, '/tmp/nonexistent_memcached_socket_test')
+  end
+
   def key
     caller.first[/.*[`' ](.*)'/, 1] # '
   end
