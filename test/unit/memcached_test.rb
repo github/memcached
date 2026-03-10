@@ -1591,4 +1591,224 @@ class MemcachedTest < Test::Unit::TestCase
     socket
   end
 
+  # Liveness check
+
+  def test_liveness_check_defaults
+    cache = Memcached.new(@servers, @options)
+    assert_equal false, cache.options[:liveness_check]
+    assert_equal cache.options[:connect_timeout], cache.options[:liveness_check_timeout]
+  end
+
+  def test_liveness_check_with_custom_timeout
+    cache = Memcached.new(@servers, @options.merge(
+      :liveness_check => true,
+      :liveness_check_timeout => 0.5
+    ))
+    assert_equal true, cache.options[:liveness_check]
+    assert_equal 0.5, cache.options[:liveness_check_timeout]
+  end
+
+  def test_liveness_check_behavior_is_set
+    cache = Memcached.new(@servers, @options.merge(:liveness_check => true))
+    assert_equal 1, cache.send(:get_behavior, :liveness_check)
+  end
+
+  def test_liveness_check_behavior_is_not_set_by_default
+    cache = Memcached.new(@servers, @options)
+    assert_equal 0, cache.send(:get_behavior, :liveness_check)
+  end
+
+  def test_liveness_check_timeout_behavior_is_set
+    cache = Memcached.new(@servers, @options.merge(:liveness_check_timeout => 0.5))
+    # 0.5 seconds * 1000 = 500 milliseconds in the C layer
+    assert_equal 500, cache.send(:get_behavior, :liveness_check_timeout)
+  end
+
+  def test_liveness_check_timeout_defaults_to_connect_timeout
+    cache = Memcached.new(@servers, @options.merge(:connect_timeout => 2.0))
+    assert_equal 2.0, cache.options[:liveness_check_timeout]
+    assert_equal 2000, cache.send(:get_behavior, :liveness_check_timeout)
+  end
+
+  def test_liveness_check_enabled_with_live_server
+    # Liveness check should not interfere with healthy servers
+    cache = Memcached.new(
+      @servers,
+      @options.merge(
+        :auto_eject_hosts => true,
+        :server_failure_limit => 2,
+        :retry_timeout => 1,
+        :liveness_check => true,
+        :show_backtraces => true
+      )
+    )
+
+    key2 = 'test_liveness_live_server'
+    assert_nothing_raised do
+      cache.set(key2, @value)
+      assert_equal @value, cache.get(key2)
+    end
+  end
+
+  def test_liveness_check_disabled_missing_server_reintroduced_after_retry_timeout
+    # With liveness_check disabled, a missing server is retried directly
+    # after retry timeout (real connection attempt, not ServerIsMarkedDead).
+    cache = Memcached.new(
+      [@servers.last, 'localhost:43041'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :liveness_check => false,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 0
+    )
+
+    key2 = 'test_liveness_disabled'
+
+    # Trigger failures to get server marked dead
+    2.times do
+      begin
+        cache.set(key2, @value)
+      rescue Memcached::SystemError, Memcached::ATimeoutOccurred
+      end
+    end
+    begin
+      cache.get(key2)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+    end
+
+    sleep(2)
+
+    # Without liveness check, the server is retried directly
+    begin
+      cache.set(key2, @value)
+    rescue Memcached::SystemError, Memcached::ATimeoutOccurred
+      # Expected: actual connection attempt, not ServerIsMarkedDead
+    rescue Memcached::ServerIsMarkedDead
+      flunk "Expected a real connection error after retry timeout, not ServerIsMarkedDead"
+    end
+  end
+
+  def test_liveness_check_enabled_missing_server_stays_dead_after_retry_timeout
+    # With liveness_check enabled, a missing server remains marked dead
+    # after retry timeout because the liveness probe fails.
+    cache = Memcached.new(
+      [@servers.last, 'localhost:43041'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :liveness_check => true,
+      :liveness_check_timeout => 0.1,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 0
+    )
+
+    key2 = 'test_liveness_enabled'
+
+    # Trigger failures to get server marked dead
+    2.times do
+      begin
+        cache.set(key2, @value)
+      rescue Memcached::SystemError, Memcached::ATimeoutOccurred
+      end
+    end
+    begin
+      cache.get(key2)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+    end
+
+    sleep(2)
+
+    # With liveness check, the probe fails so the server stays marked dead
+    begin
+      cache.set(key2, @value)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+      assert_match(/localhost:43041/, e.message)
+    end
+  end
+
+  def test_liveness_check_enabled_unresponsive_server
+    socket = stub_server 43041
+
+    cache = Memcached.new(
+      [@servers.last, 'localhost:43041'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :liveness_check => true,
+      :liveness_check_timeout => 0.1,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 0
+    )
+
+    key2 = 'test_liveness_unresponsive'
+
+    # Hit unresponsive server to trigger failure limit
+    2.times do
+      begin
+        cache.set(key2, @value)
+      rescue Memcached::ATimeoutOccurred, Memcached::ServerIsMarkedDead
+      end
+    end
+    begin
+      cache.get(key2)
+    rescue => e
+      assert_equal Memcached::ServerIsMarkedDead, e.class
+    end
+
+    sleep(2)
+
+    # The stub_server accepts TCP connections, so the liveness probe's
+    # TCP connect succeeds. The server gets reintroduced but then
+    # the actual memcached operation times out.
+    begin
+      cache.set(key2, @value)
+    rescue Memcached::ATimeoutOccurred, Memcached::ServerIsMarkedDead
+      # Either is acceptable — TCP connect succeeds to stub_server so
+      # server may be reintroduced, then the real operation times out.
+    end
+  ensure
+    socket.close
+  end
+
+  def test_liveness_check_with_retries_greater_than_failure_limit
+    cache = Memcached.new(
+      [@servers.last, 'localhost:43041'],
+      :prefix_key => @prefix_key,
+      :auto_eject_hosts => true,
+      :server_failure_limit => 2,
+      :retry_timeout => 1,
+      :liveness_check => true,
+      :liveness_check_timeout => 0.1,
+      :hash_with_prefix_key => false,
+      :hash => :md5,
+      :exception_retry_limit => 5
+    )
+
+    key2 = 'test_liveness_retries'
+
+    # With exception_retry_limit > server_failure_limit, operations
+    # should eventually succeed by retrying on the healthy server
+    assert_nothing_raised do
+      cache.set(key2, @value)
+    end
+
+    sleep(2)
+
+    # After retry timeout, liveness probe fails for the dead server,
+    # but retries still route to the healthy server
+    assert_nothing_raised do
+      cache.set(key2, @value)
+    end
+  end
+
 end

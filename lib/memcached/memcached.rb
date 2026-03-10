@@ -31,6 +31,8 @@ class Memcached
     :sort_hosts => false,
     :auto_eject_hosts => true,
     :server_failure_limit => 2,
+    :liveness_check => false,
+    :liveness_check_timeout => nil,
     :verify_key => true,
     :use_udp => false,
     :binary_protocol => false,
@@ -82,6 +84,8 @@ Valid option parameters are:
 <tt>:server_failure_limit</tt>:: How many consecutive failures to allow before marking a host as dead. Has no effect unless <tt>:retry_timeout</tt> is also set.
 <tt>:retry_timeout</tt>:: How long to wait until retrying a dead server. Has no effect unless <tt>:server_failure_limit</tt> is non-zero. Defaults to <tt>30</tt>.
 <tt>:auto_eject_hosts</tt>:: Whether to temporarily eject dead hosts from the pool. Defaults to <tt>true</tt>. Note that in the event of an ejection, <tt>:auto_eject_hosts</tt> will remap the entire pool unless <tt>:distribution</tt> is set to <tt>:consistent</tt>.
+<tt>:liveness_check</tt>:: Whether to perform a TCP connect probe before reintroducing a previously-dead server. When enabled, the server must pass a liveness check before being added back to the pool. Defaults to <tt>false</tt>.
+<tt>:liveness_check_timeout</tt>:: Timeout in seconds for the liveness check probe connection. Defaults to the value of <tt>:connect_timeout</tt> when <tt>nil</tt>.
 <tt>:exception_retry_limit</tt>:: How many times to retry before raising exceptions in <tt>:exceptions_to_retry</tt>. Defaults to <tt>5</tt>.
 <tt>:exceptions_to_retry</tt>:: Which exceptions to retry. Defaults to <b>ServerIsMarkedDead</b>, <b>ATimeoutOccurred</b>, <b>ConnectionBindFailure</b>, <b>ConnectionFailure</b>, <b>ConnectionSocketCreateFailure</b>, <b>Failure</b>, <b>MemoryAllocationFailure</b>, <b>ReadFailure</b>, <b>ServerError</b>, <b>SystemError</b>, <b>UnknownReadFailure</b>, and <b>WriteFailure</b>.
 <tt>:cache_lookups</tt>:: Whether to cache hostname lookups for the life of the instance. Defaults to <tt>true</tt>.
@@ -160,6 +164,9 @@ Please note that when <tt>:no_block => true</tt>, update methods do not raise on
 
     # Write timeouts
     options[:snd_timeout] ||= options[:timeout]
+
+    # Liveness check timeout defaults to connect_timeout
+    options[:liveness_check_timeout] ||= options[:connect_timeout]
 
     # Set the prefix key
     set_prefix_key(options[:prefix_key])

@@ -3,6 +3,131 @@
 #include <poll.h>
 #include <sys/time.h>
 
+/*
+  Perform a connect probe to check if a server is alive.
+  Opens a temporary socket, attempts a non-blocking connect with
+  the configured liveness timeout, then closes the socket.
+  Supports TCP, UDP (skipped — connectionless), and Unix sockets.
+  Returns MEMCACHED_SUCCESS if the server is reachable,
+  MEMCACHED_SERVER_MARKED_DEAD otherwise.
+*/
+static memcached_return liveness_check(memcached_server_st *ptr)
+{
+  int probe_fd;
+  int timeout;
+  memcached_return rc= MEMCACHED_SERVER_MARKED_DEAD;
+
+  /* UDP is connectionless — skip liveness check */
+  if (ptr->type == MEMCACHED_CONNECTION_UDP)
+    return MEMCACHED_SUCCESS;
+
+  /* Use liveness_check_timeout if set, otherwise fall back to connect_timeout */
+  timeout= ptr->root->liveness_check_timeout ? ptr->root->liveness_check_timeout
+                                              : ptr->root->connect_timeout;
+  /* If neither timeout is set, use a reasonable default of 500ms */
+  if (timeout <= 0)
+    timeout= 500;
+
+  if (ptr->type == MEMCACHED_CONNECTION_UNIX_SOCKET)
+  {
+    struct sockaddr_un servAddr;
+
+    probe_fd= socket(AF_UNIX, SOCK_STREAM, 0);
+    if (probe_fd < 0)
+      return MEMCACHED_SERVER_MARKED_DEAD;
+
+    memset(&servAddr, 0, sizeof(struct sockaddr_un));
+    servAddr.sun_family= AF_UNIX;
+    strcpy(servAddr.sun_path, ptr->hostname);
+
+    /* Set non-blocking for connect with timeout */
+    {
+      int flags= fcntl(probe_fd, F_GETFL, 0);
+      if (flags != -1)
+        (void)fcntl(probe_fd, F_SETFL, flags | O_NONBLOCK);
+    }
+
+    if (connect(probe_fd, (struct sockaddr *)&servAddr, sizeof(servAddr)) == 0)
+    {
+      rc= MEMCACHED_SUCCESS;
+    }
+    else if (errno == EINPROGRESS || errno == EALREADY)
+    {
+      struct pollfd fds[1];
+      fds[0].fd= probe_fd;
+      fds[0].events= POLLOUT;
+
+      int poll_rc= poll(fds, 1, timeout);
+      if (poll_rc == 1 && (fds[0].revents & POLLOUT) && !(fds[0].revents & POLLERR))
+      {
+        int err;
+        socklen_t len= sizeof(err);
+        if (getsockopt(probe_fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 && err == 0)
+          rc= MEMCACHED_SUCCESS;
+      }
+    }
+
+    (void)close(probe_fd);
+    return rc;
+  }
+
+  /* TCP connection */
+  {
+    struct addrinfo *ai;
+    struct addrinfo hints;
+    int e;
+    char str_port[NI_MAXSERV];
+
+    sprintf(str_port, "%u", ptr->port);
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype= SOCK_STREAM;
+    hints.ai_protocol= IPPROTO_TCP;
+
+    e= getaddrinfo(ptr->hostname, str_port, &hints, &ai);
+    if (e != 0)
+      return MEMCACHED_SERVER_MARKED_DEAD;
+
+    probe_fd= socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (probe_fd < 0)
+    {
+      freeaddrinfo(ai);
+      return MEMCACHED_SERVER_MARKED_DEAD;
+    }
+
+    /* Set non-blocking for connect with timeout */
+    {
+      int flags= fcntl(probe_fd, F_GETFL, 0);
+      if (flags != -1)
+        (void)fcntl(probe_fd, F_SETFL, flags | O_NONBLOCK);
+    }
+
+    if (connect(probe_fd, ai->ai_addr, ai->ai_addrlen) == 0)
+    {
+      rc= MEMCACHED_SUCCESS;
+    }
+    else if (errno == EINPROGRESS || errno == EALREADY)
+    {
+      struct pollfd fds[1];
+      fds[0].fd= probe_fd;
+      fds[0].events= POLLOUT;
+
+      int poll_rc= poll(fds, 1, timeout);
+      if (poll_rc == 1 && (fds[0].revents & POLLOUT) && !(fds[0].revents & POLLERR))
+      {
+        int err;
+        socklen_t len= sizeof(err);
+        if (getsockopt(probe_fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 && err == 0)
+          rc= MEMCACHED_SUCCESS;
+      }
+    }
+
+    (void)close(probe_fd);
+    freeaddrinfo(ai);
+    return rc;
+  }
+}
+
 static memcached_return set_hostinfo(memcached_server_st *server)
 {
   struct addrinfo *ai;
@@ -355,6 +480,22 @@ memcached_return memcached_connect(memcached_server_st *ptr)
         run_distribution(ptr->root);
 
       return MEMCACHED_SERVER_MARKED_DEAD;
+    }
+
+    /* Retry timeout has expired. If liveness checking is enabled,
+       probe the server before allowing it back into the pool. */
+    if (ptr->root->flags & MEM_LIVENESS_CHECK)
+    {
+      if (liveness_check(ptr) != MEMCACHED_SUCCESS)
+      {
+        /* Probe failed: re-mark the server dead for another retry_timeout cycle */
+        ptr->next_retry= next_time.tv_sec + ptr->root->retry_timeout;
+
+        if (memcached_behavior_get(ptr->root, MEMCACHED_BEHAVIOR_AUTO_EJECT_HOSTS))
+          run_distribution(ptr->root);
+
+        return MEMCACHED_SERVER_MARKED_DEAD;
+      }
     }
   }
 

@@ -97,6 +97,7 @@ struct memcached_st {
   int32_t poll_timeout;
   int32_t connect_timeout;
   int32_t retry_timeout;
+  int32_t liveness_check_timeout;
   uint32_t continuum_count;
   int send_size;
   int recv_size;

@@ -160,6 +160,12 @@ memcached_return memcached_behavior_set(memcached_st *ptr,
   case MEMCACHED_BEHAVIOR_AUTO_EJECT_HOSTS:
     set_behavior_flag(ptr, MEM_AUTO_EJECT_HOSTS, data);
     break;
+  case MEMCACHED_BEHAVIOR_LIVENESS_CHECK:
+    set_behavior_flag(ptr, MEM_LIVENESS_CHECK, data);
+    break;
+  case MEMCACHED_BEHAVIOR_LIVENESS_CHECK_TIMEOUT:
+    ptr->liveness_check_timeout= (int32_t)data;
+    break;
   default:
     /* Shouldn't get here */
     WATCHPOINT_ASSERT(flag);
@@ -277,6 +283,11 @@ uint64_t memcached_behavior_get(memcached_st *ptr,
   case MEMCACHED_BEHAVIOR_AUTO_EJECT_HOSTS:
     temp_flag= MEM_AUTO_EJECT_HOSTS;
     break;
+  case MEMCACHED_BEHAVIOR_LIVENESS_CHECK:
+    temp_flag= MEM_LIVENESS_CHECK;
+    break;
+  case MEMCACHED_BEHAVIOR_LIVENESS_CHECK_TIMEOUT:
+    return (uint64_t)ptr->liveness_check_timeout;
   default:
     WATCHPOINT_ASSERT(flag);
     break;
