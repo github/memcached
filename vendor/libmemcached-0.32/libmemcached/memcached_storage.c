@@ -511,3 +511,4 @@ static memcached_return memcached_send_binary(memcached_st *ptr,
 
   return memcached_response(server, NULL, 0, NULL);
 }
+
