@@ -998,6 +998,34 @@ class MemcachedTest < Test::Unit::TestCase
     end
   end
 
+  def test_storage_command_with_oversized_prefix_and_key
+    cache = Memcached.new @servers, @options.merge(:prefix_key => "p" * 127)
+    key = "k" * 250
+
+    assert_raises(Memcached::ABadKeyWasProvidedOrCharactersOutOfRange) do
+      cache.set key, @value
+    end
+    assert_raises(Memcached::ABadKeyWasProvidedOrCharactersOutOfRange) do
+      cache.prepend key, "value"
+    end
+  end
+
+  def test_storage_command_with_prefix_and_key_filling_buffer
+    cache = Memcached.new @servers, @options.merge(:prefix_key => "p" * 127)
+
+    assert_raises(Memcached::ABadKeyWasProvidedOrCharactersOutOfRange) do
+      cache.set "k" * 218, @value
+    end
+  end
+
+  def test_noreply_delete_with_oversized_prefix_and_key
+    cache = Memcached.new @servers, @noblock_options.merge(:prefix_key => "p" * 127)
+
+    assert_raises(Memcached::ABadKeyWasProvidedOrCharactersOutOfRange) do
+      cache.delete "k" * 250
+    end
+  end
+
   def test_verify_key_disabled
     cache = Memcached.new @servers, :verify_key => false
     key = "i have a space"
