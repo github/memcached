@@ -107,6 +107,9 @@ static inline memcached_return memcached_send(memcached_st *ptr,
     char *buffer_ptr= buffer;
     const char *command= storage_op_string(verb);
 
+    if (strlen(command) + strlen(ptr->prefix_key) + key_length + 1 >= MEMCACHED_DEFAULT_COMMAND_SIZE)
+      return MEMCACHED_BAD_KEY_PROVIDED;
+
     /* Copy in the command, no space needed, we handle that in the command function*/
     memcpy(buffer_ptr, command, strlen(command));
 
