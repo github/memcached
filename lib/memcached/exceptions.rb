@@ -60,7 +60,6 @@ Subclasses correspond one-to-one with server response strings or libmemcached er
 
   EXCEPTIONS = []
   empty_struct = Lib.memcached_create(nil)
-  Lib.memcached_create(empty_struct)
 
   # Generate exception classes
   Lib::MEMCACHED_MAXIMUM_RETURN.times do |index|
