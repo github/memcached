@@ -946,9 +946,6 @@ SWIG_UnpackDataName(const char *c, void *ptr, size_t sz, const char *name) {
 #ifndef RSTRUCT_PTR
 # define RSTRUCT_PTR(x) RSTRUCT(x)->ptr
 #endif
-#ifndef RTYPEDDATA_P
-# define RTYPEDDATA_P(x) (TYPE(x) != T_DATA)
-#endif
 
 
 
@@ -971,9 +968,7 @@ SWIG_UnpackDataName(const char *c, void *ptr, size_t sz, const char *name) {
  * functions like rb_define_method() and rb_define_singleton_method().
  *
  * VOIDFUNC(f) is used to typecast a C function that implements either
- * the "mark" or "free" stuff for a Ruby Data object, so that it can be
- * passed as an argument to Ruby C API functions like Data_Wrap_Struct()
- * and Data_Make_Struct().
+ * the "mark" or "free" callback for a Ruby TypedData object.
  *
  * SWIG_RUBY_VOID_ANYARGS_FUNC(f) is used for the function pointer
  * argument(s) of Ruby C API functions like rb_define_virtual_variable().
@@ -1206,6 +1201,57 @@ extern "C" {
 #  error sizeof(void*) is not the same as long or long long
 #endif
 
+/* Keep ownership callbacks per object so disowning never changes a shared type. */
+typedef struct {
+  void *ptr;
+  void (*mark)(void *);
+  void (*destroy)(void *);
+} swig_ruby_data;
+
+static void
+SWIG_Ruby_DataMark(void *ptr) {
+  swig_ruby_data *data = (swig_ruby_data *)ptr;
+  if (data->ptr && data->mark)
+    data->mark(data->ptr);
+}
+
+static void
+SWIG_Ruby_DataFree(void *ptr) {
+  swig_ruby_data *data = (swig_ruby_data *)ptr;
+  if (data->ptr && data->destroy)
+    data->destroy(data->ptr);
+  xfree(data);
+}
+
+static size_t
+SWIG_Ruby_DataSize(const void *SWIGUNUSEDPARM(ptr)) {
+  return sizeof(swig_ruby_data);
+}
+
+static const rb_data_type_t swig_ruby_data_type = {
+  "SWIG pointer",
+  { SWIG_Ruby_DataMark, SWIG_Ruby_DataFree, SWIG_Ruby_DataSize },
+  0, 0, 0
+};
+
+SWIGRUNTIME swig_ruby_data *
+SWIG_Ruby_GetData(VALUE obj) {
+  swig_ruby_data *data;
+  TypedData_Get_Struct(obj, swig_ruby_data, &swig_ruby_data_type, data);
+  return data;
+}
+
+SWIGRUNTIME VALUE
+SWIG_Ruby_WrapData(VALUE klass, void (*mark)(void *),
+                   void (*destroy)(void *), void *ptr) {
+  swig_ruby_data *data;
+  VALUE obj = TypedData_Make_Struct(klass, swig_ruby_data, &swig_ruby_data_type, data);
+  data->ptr = ptr;
+  data->mark = mark;
+  data->destroy = destroy;
+  return obj;
+}
+
 /* Global hash table to store Trackings from C/C++
    structs to Ruby Objects.
 */
@@ -1290,7 +1336,7 @@ SWIGRUNTIME void SWIG_RubyUnlinkObjects(void* ptr) {
     // object might have the T_ZOMBIE type, but that's just
     // because the GC has flagged it as such for a deferred
     // destruction. Until then, it's still a T_DATA object.
-    DATA_PTR(object) = 0;
+    ((swig_ruby_data *)RTYPEDDATA_DATA(object))->ptr = 0;
   }
 }
 
@@ -1429,6 +1475,11 @@ typedef struct {
 /* Global pointer used to keep some internal SWIG stuff */
 static VALUE _cSWIG_Pointer = Qnil;
 static VALUE swig_runtime_data_type_pointer = Qnil;
+static const rb_data_type_t swig_module_data_type = {
+  "SWIG module",
+  { 0, 0, 0 },
+  0, 0, 0
+};
 
 /* Global IDs used to keep some internal SWIG stuff */
 static ID swig_arity_id = 0;
@@ -1551,7 +1602,7 @@ SWIG_Ruby_NewPointerObj(void *ptr, swig_type_info *type, int flags)
     }
 
     /* Create a new Ruby object */
-    obj = Data_Wrap_Struct(sklass->klass, VOIDFUNC(sklass->mark), 
+    obj = SWIG_Ruby_WrapData(sklass->klass, VOIDFUNC(sklass->mark),
 			   ( own ? VOIDFUNC(sklass->destroy) : 
 			     (track ? VOIDFUNC(SWIG_RubyRemoveTracking) : 0 )
 			     ), ptr);
@@ -1565,7 +1616,7 @@ SWIG_Ruby_NewPointerObj(void *ptr, swig_type_info *type, int flags)
     sprintf(klass_name, "TYPE%s", type->name);
     klass = rb_const_get(_mSWIG, rb_intern(klass_name));
     free((void *) klass_name);
-    obj = Data_Wrap_Struct(klass, 0, 0, ptr);
+    obj = SWIG_Ruby_WrapData(klass, 0, 0, ptr);
   }
   rb_iv_set(obj, "@__swigtype__", rb_str_new2(type->name));
 
@@ -1578,7 +1629,7 @@ SWIG_Ruby_NewClassInstance(VALUE klass, swig_type_info *type)
 {
   VALUE obj;
   swig_class *sklass = (swig_class *) type->clientdata;
-  obj = Data_Wrap_Struct(klass, VOIDFUNC(sklass->mark), VOIDFUNC(sklass->destroy), 0);
+  obj = SWIG_Ruby_WrapData(klass, VOIDFUNC(sklass->mark), VOIDFUNC(sklass->destroy), 0);
   rb_iv_set(obj, "@__swigtype__", rb_str_new2(type->name));
   return obj;
 }
@@ -1602,9 +1653,10 @@ typedef struct {
 SWIGRUNTIME swig_ruby_owntype
 SWIG_Ruby_AcquirePtr(VALUE obj, swig_ruby_owntype own) {
   swig_ruby_owntype oldown = {0, 0};
-  if (TYPE(obj) == T_DATA && !RTYPEDDATA_P(obj)) {
-    oldown.datafree = RDATA(obj)->dfree;
-    RDATA(obj)->dfree = own.datafree;
+  if (rb_typeddata_is_kind_of(obj, &swig_ruby_data_type)) {
+    swig_ruby_data *data = SWIG_Ruby_GetData(obj);
+    oldown.datafree = data->destroy;
+    data->destroy = own.datafree;
   }
   return oldown;
 }
@@ -1623,14 +1675,14 @@ SWIG_Ruby_ConvertPtrAndOwn(VALUE obj, void **ptr, swig_type_info *ty, int flags,
       *ptr = 0;
     return (flags & SWIG_POINTER_NO_NULL) ? SWIG_NullReferenceError : SWIG_OK;
   } else {
-    if (TYPE(obj) != T_DATA || (TYPE(obj) == T_DATA && RTYPEDDATA_P(obj))) {
+    if (!rb_typeddata_is_kind_of(obj, &swig_ruby_data_type)) {
       return SWIG_ERROR;
     }
-    Data_Get_Struct(obj, void, vptr);
+    vptr = SWIG_Ruby_GetData(obj)->ptr;
   }
   
   if (own) {
-    own->datafree = RDATA(obj)->dfree;
+    own->datafree = SWIG_Ruby_GetData(obj)->destroy;
     own->own = 0;
   }
     
@@ -1653,9 +1705,9 @@ SWIG_Ruby_ConvertPtrAndOwn(VALUE obj, void **ptr, swig_type_info *ty, int flags,
        * when the Ruby object is garbage collected.  If we don't
        * do this, then it is possible we will return a reference 
        * to a Ruby object that no longer exists thereby crashing Ruby. */
-      RDATA(obj)->dfree = SWIG_RubyRemoveTracking;
+      SWIG_Ruby_GetData(obj)->destroy = SWIG_RubyRemoveTracking;
     } else {    
-      RDATA(obj)->dfree = 0;
+      SWIG_Ruby_GetData(obj)->destroy = 0;
     }
   }
 
@@ -1753,7 +1805,7 @@ SWIG_Ruby_GetModule(void *SWIGUNUSEDPARM(clientdata))
   /* first check if pointer already created */
   pointer = rb_gv_get("$swig_runtime_data_type_pointer" SWIG_RUNTIME_VERSION SWIG_TYPE_TABLE_NAME);
   if (pointer != Qnil) {
-    Data_Get_Struct(pointer, swig_module_info, ret);
+    TypedData_Get_Struct(pointer, swig_module_info, &swig_module_data_type, ret);
   }
 
   /* reinstate warnings */
@@ -1768,7 +1820,7 @@ SWIG_Ruby_SetModule(swig_module_info *pointer)
   VALUE cl = rb_define_class("swig_runtime_data", rb_cObject);
   rb_undef_alloc_func(cl);
   /* create and store the structure pointer to a global variable */
-  swig_runtime_data_type_pointer = Data_Wrap_Struct(cl, 0, 0, pointer);
+  swig_runtime_data_type_pointer = TypedData_Wrap_Struct(cl, &swig_module_data_type, pointer);
   rb_define_readonly_variable("$swig_runtime_data_type_pointer" SWIG_RUNTIME_VERSION SWIG_TYPE_TABLE_NAME, &swig_runtime_data_type_pointer);
 }
 
@@ -2885,7 +2937,7 @@ _wrap_new_MemcachedAnalysisSt(int argc, VALUE *argv, VALUE self) {
     rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
   }
   result = (struct memcached_analysis_st *)calloc(1, sizeof(struct memcached_analysis_st));
-  DATA_PTR(self) = result;
+  SWIG_Ruby_GetData(self)->ptr = result;
   return self;
 fail:
   return Qnil;
@@ -4386,7 +4438,7 @@ _wrap_new_MemcachedStatSt(int argc, VALUE *argv, VALUE self) {
     rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
   }
   result = (struct memcached_stat_st *)calloc(1, sizeof(struct memcached_stat_st));
-  DATA_PTR(self) = result;
+  SWIG_Ruby_GetData(self)->ptr = result;
   return self;
 fail:
   return Qnil;
@@ -6889,7 +6941,7 @@ _wrap_new_MemcachedSt(int argc, VALUE *argv, VALUE self) {
     rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
   }
   result = (struct memcached_st *)calloc(1, sizeof(struct memcached_st));
-  DATA_PTR(self) = result;
+  SWIG_Ruby_GetData(self)->ptr = result;
   return self;
 fail:
   return Qnil;
@@ -10474,7 +10526,7 @@ _wrap_new_MemcachedResultSt(int argc, VALUE *argv, VALUE self) {
     rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
   }
   result = (struct memcached_result_st *)calloc(1, sizeof(struct memcached_result_st));
-  DATA_PTR(self) = result;
+  SWIG_Ruby_GetData(self)->ptr = result;
   return self;
 fail:
   return Qnil;
@@ -12111,7 +12163,7 @@ _wrap_new_MemcachedServerSt(int argc, VALUE *argv, VALUE self) {
     rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
   }
   result = (struct memcached_server_st *)calloc(1, sizeof(struct memcached_server_st));
-  DATA_PTR(self) = result;
+  SWIG_Ruby_GetData(self)->ptr = result;
   return self;
 fail:
   return Qnil;
